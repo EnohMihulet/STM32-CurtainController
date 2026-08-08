@@ -13,9 +13,8 @@ typedef enum {
 #define LIMIT_SWITCH_CONTACT LIMIT_SWITCH_Contact_NC
 #endif
 
-void LIMIT_SWITCH_Init(void);
-uint8_t LIMIT_SWITCH_IsActive(void);
-GPIO_TypeDef* LIMIT_SWITCH_Port_Get(void);
-GPIO_Pin LIMIT_SWITCH_Pin_Get(void);
+void LIMIT_SWITCH_Init(GPIO_Config* config);
+uint8_t LIMIT_SWITCH_IsActive(GPIO_Config* config);
+
 EXTI_Line LIMIT_SWITCH_EXTILine_Get(void);
 EXTI_Trigger LIMIT_SWITCH_EXTITrigger_Get(void);

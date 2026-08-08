@@ -66,7 +66,12 @@ typedef struct {
 	uint8_t busy;
 
 	STEPPER_Direction direction;
+
+	void (*completion_callback)(void* context);
+	void* completion_context;
 } STEPPER_Handle;
+
+typedef void (*STEPPER_CompletionCallback)(void* context);
 
 STEPPER_Result STEPPER_Init(STEPPER_Handle* stepper, const STEPPER_Config* config);
 
@@ -82,3 +87,5 @@ void STEPPER_Stop(STEPPER_Handle* stepper);
 
 uint8_t STEPPER_IsBusy(STEPPER_Handle* stepper);
 uint32_t STEPPER_CompletedSteps_Get(STEPPER_Handle* stepper);
+
+void STEPPER_CompletionCallback_Register(STEPPER_Handle* stepper, STEPPER_CompletionCallback callback, void* context);

@@ -2,6 +2,7 @@
 
 #include "board_button.h"
 #include "board_led.h"
+#include "curtain_controller.h"
 #include "exti.h"
 #include "limit_switch.h"
 #include "pwm.h"
@@ -71,6 +72,33 @@ static void SHELL_WriteUnsigned(uint32_t value) {
 	}
 
 	SHELL_Write(&buf[i]);
+}
+
+static SHELL_Result SHELL_CurtainResult_ToShell(CURTAIN_Result result) {
+	switch (result) {
+	case CURTAIN_Result_Ok: return SHELL_RESULT_OK;
+	case CURTAIN_Result_Busy: return SHELL_RESULT_BUSY;
+	case CURTAIN_Result_QueueFull: return SHELL_RESULT_CAPACITY;
+	case CURTAIN_Result_InvalidState: return SHELL_RESULT_INVALID_STATE;
+	case CURTAIN_Result_InvalidStepperConfig:
+	case CURTAIN_Result_InvalidLimitSwitchConfig:
+	case CURTAIN_Result_InvalidLimitSwitchEXTIConfig:
+	case CURTAIN_Result_InvalidLimitSwitchCallback:
+		return SHELL_RESULT_INTERNAL;
+	}
+
+	return SHELL_RESULT_INTERNAL;
+}
+
+static const char* SHELL_CurtainStateName(CURTAIN_State state) {
+	switch (state) {
+	case CURTAIN_Unknown: return "unknown";
+	case CURTAIN_Up: return "up";
+	case CURTAIN_DownOpen: return "down_open";
+	case CURTAIN_DownClosed: return "down_closed";
+	}
+
+	return "invalid";
 }
 
 SHELL_Result SHELL_CommandHelp(int argc, const char* argv[]) {
@@ -377,11 +405,85 @@ SHELL_Result SHELL_CommandExti(int argc, const char* argv[]) {
 SHELL_Result SHELL_CommandSwitch(int argc, const char* argv[]) {
 	(void)argc;
 	(void)argv;
+	GPIO_Config switch_config = {
+		.port = GPIOB,
+		.pin = GPIO_Pin_6,
+		.mode = GPIO_Mode_Input,
+		.output_type = GPIO_Output_PushPull,
+		.speed = GPIO_Speed_Low,
+		.pull = GPIO_Pull_Up,
+	};
 
 	SHELL_Write("Limit: ");
-	SHELL_Write(LIMIT_SWITCH_IsActive() ? "active" : "released");
+	SHELL_Write(LIMIT_SWITCH_IsActive(&switch_config) ? "active" : "released");
 	SHELL_Write("\r\n");
 	return SHELL_RESULT_OK;
+}
+
+SHELL_Result SHELL_CommandCurtain(int argc, const char* argv[]) {
+	if (SHELL_CommandStringEquals(argv[0], "status")) {
+		if (argc != 1) return SHELL_RESULT_ARGUMENT_COUNT;
+
+		SHELL_Write("Curtain: state=");
+		SHELL_Write(SHELL_CurtainStateName(CURTAIN_Controller_State_Get()));
+		SHELL_Write(", ");
+		SHELL_Write(CURTAIN_Controller_IsBusy() ? "busy" : "idle");
+		SHELL_Write("\r\n");
+		return SHELL_RESULT_OK;
+	}
+
+	if (SHELL_CommandStringEquals(argv[0], "up")) {
+		if (argc != 1) return SHELL_RESULT_ARGUMENT_COUNT;
+		return SHELL_CurtainResult_ToShell(CURTAIN_Controller_ChangeState(CURTAIN_Up));
+	}
+
+	if (SHELL_CommandStringEquals(argv[0], "open") || SHELL_CommandStringEquals(argv[0], "downopen")) {
+		if (argc != 1) return SHELL_RESULT_ARGUMENT_COUNT;
+		return SHELL_CurtainResult_ToShell(CURTAIN_Controller_ChangeState(CURTAIN_DownOpen));
+	}
+
+	if (SHELL_CommandStringEquals(argv[0], "closed") || SHELL_CommandStringEquals(argv[0], "downclosed")) {
+		if (argc != 1) return SHELL_RESULT_ARGUMENT_COUNT;
+		return SHELL_CurtainResult_ToShell(CURTAIN_Controller_ChangeState(CURTAIN_DownClosed));
+	}
+
+	if (SHELL_CommandStringEquals(argv[0], "stop")) {
+		if (argc != 1) return SHELL_RESULT_ARGUMENT_COUNT;
+		CURTAIN_Controller_Stop(CURTAIN_Unknown);
+		SHELL_Write("Curtain: stopped\r\n");
+		return SHELL_RESULT_OK;
+	}
+
+	if (SHELL_CommandStringEquals(argv[0], "move")) {
+		if (argc != 3) return SHELL_RESULT_ARGUMENT_COUNT;
+
+		STEPPER_Direction direction;
+		if (SHELL_CommandStringEquals(argv[1], "up") || SHELL_CommandStringEquals(argv[1], "fwd") || SHELL_CommandStringEquals(argv[1], "forward")) {
+			direction = STEPPER_Direction_Forward;
+		}
+		else if (SHELL_CommandStringEquals(argv[1], "down") || SHELL_CommandStringEquals(argv[1], "rev") || SHELL_CommandStringEquals(argv[1], "reverse")) {
+			direction = STEPPER_Direction_Reverse;
+		}
+		else {
+			return SHELL_RESULT_BAD_ARGUMENT;
+		}
+
+		uint32_t steps = 0;
+		SHELL_Result parse_result = SHELL_ParseUnsigned(argv[2], &steps);
+		if (parse_result != SHELL_RESULT_OK) return parse_result;
+		if (steps == 0) return SHELL_RESULT_OUT_OF_RANGE;
+
+		CURTAIN_Result move_result = CURTAIN_Controller_Move(direction, steps);
+		if (move_result != CURTAIN_Result_Ok) return SHELL_CurtainResult_ToShell(move_result);
+
+		SHELL_Write("Curtain: moving ");
+		SHELL_Write(direction == STEPPER_Direction_Forward ? "up " : "down ");
+		SHELL_WriteUnsigned(steps);
+		SHELL_Write(" steps\r\n");
+		return SHELL_RESULT_OK;
+	}
+
+	return SHELL_RESULT_BAD_ARGUMENT;
 }
 
 static const SHELL_Command curtain_commands[] = {
@@ -393,6 +495,7 @@ static const SHELL_Command curtain_commands[] = {
 	{"exti", SHELL_CommandExti, 2, 2, "Test EXTI: exti swier|pending|clear <0-22>"},
 	{"switch", SHELL_CommandSwitch, 0, 0, "Read switch state as active or released"},
 	{"stepper", SHELL_CommandStepper, 1, 3, "Control stepper: stepper start [hz]|stop|status|dir fwd|rev|speed <hz>|move <steps> [hz]"},
+	{"curtain", SHELL_CommandCurtain, 1, 3, "Control curtain: curtain up|open|closed|status|stop|move up|down <steps>"},
 };
 
 void Curtain_ShellCommands_Init(STEPPER_Handle* stepper) {
