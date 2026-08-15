@@ -14,9 +14,11 @@ int main(void) {
 	Curtain_ShellCommands_Init(CURTAIN_Controller_Stepper_Get());
 
 	USART2_Init();
-	SHELL_Start();
+	SHELL_Init();
 	
 	while (1) {
+		SHELL_Update();
+		CURTAIN_Controller_Update();
 	}
 
 	return 0;

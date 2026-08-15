@@ -354,7 +354,7 @@ SHELL_Result SHELL_CommandStepper(int argc, const char* argv[]) {
 		}
 
 		if (STEPPER_Enable(shell_stepper) != STEPPER_Result_Ok) return SHELL_RESULT_INVALID_STATE;
-		if (STEPPER_MoveSteps(shell_stepper, shell_stepper->direction, steps, frequency_hz) != STEPPER_Result_Ok) return SHELL_RESULT_INVALID_STATE;
+		if (STEPPER_Step(shell_stepper, shell_stepper->direction, steps, frequency_hz) != STEPPER_Result_Ok) return SHELL_RESULT_INVALID_STATE;
 		SHELL_Write("Stepper: moving ");
 		SHELL_WriteUnsigned(steps);
 		SHELL_Write(" steps at ");
@@ -458,11 +458,11 @@ SHELL_Result SHELL_CommandCurtain(int argc, const char* argv[]) {
 		if (argc != 3) return SHELL_RESULT_ARGUMENT_COUNT;
 
 		STEPPER_Direction direction;
-		if (SHELL_CommandStringEquals(argv[1], "up") || SHELL_CommandStringEquals(argv[1], "fwd") || SHELL_CommandStringEquals(argv[1], "forward")) {
-			direction = STEPPER_Direction_Forward;
-		}
-		else if (SHELL_CommandStringEquals(argv[1], "down") || SHELL_CommandStringEquals(argv[1], "rev") || SHELL_CommandStringEquals(argv[1], "reverse")) {
+		if (SHELL_CommandStringEquals(argv[1], "up") || SHELL_CommandStringEquals(argv[1], "rev") || SHELL_CommandStringEquals(argv[1], "reverse")) {
 			direction = STEPPER_Direction_Reverse;
+		}
+		else if (SHELL_CommandStringEquals(argv[1], "down") || SHELL_CommandStringEquals(argv[1], "fwd") || SHELL_CommandStringEquals(argv[1], "forward")) {
+			direction = STEPPER_Direction_Forward;
 		}
 		else {
 			return SHELL_RESULT_BAD_ARGUMENT;
@@ -477,7 +477,7 @@ SHELL_Result SHELL_CommandCurtain(int argc, const char* argv[]) {
 		if (move_result != CURTAIN_Result_Ok) return SHELL_CurtainResult_ToShell(move_result);
 
 		SHELL_Write("Curtain: moving ");
-		SHELL_Write(direction == STEPPER_Direction_Forward ? "up " : "down ");
+		SHELL_Write(direction == STEPPER_Direction_Reverse ? "up " : "down ");
 		SHELL_WriteUnsigned(steps);
 		SHELL_Write(" steps\r\n");
 		return SHELL_RESULT_OK;

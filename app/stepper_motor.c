@@ -89,8 +89,6 @@ STEPPER_Result STEPPER_Init(STEPPER_Handle* stepper, const STEPPER_Config* confi
 	stepper->enabled = 0;
 	stepper->busy = 0;
 	stepper->direction = STEPPER_Direction_Forward;
-	stepper->completion_callback = 0;
-	stepper->completion_context = 0;
 
 	TIM_UpdateCallback_Register(stepper->step_timer, STEPPER_Timer_Callback, stepper);
 	TIM_UpdateInterrupt_Disable(stepper->step_timer);
@@ -165,10 +163,6 @@ STEPPER_Result STEPPER_Step(STEPPER_Handle* stepper, STEPPER_Direction direction
 	return STEPPER_Start(stepper, frequency_hz);
 }
 
-STEPPER_Result STEPPER_MoveSteps(STEPPER_Handle* stepper, STEPPER_Direction direction, uint32_t steps, uint32_t frequency_hz) {
-	return STEPPER_Step(stepper, direction, steps, frequency_hz);
-}
-
 void STEPPER_Stop(STEPPER_Handle* stepper) {
 	if (stepper == 0) return;
 
@@ -197,23 +191,20 @@ uint32_t STEPPER_CompletedSteps_Get(STEPPER_Handle* stepper) {
 	return stepper->completed_steps;
 }
 
-void STEPPER_CompletionCallback_Register(STEPPER_Handle* stepper, STEPPER_CompletionCallback callback, void* context) {
-	if (stepper == 0) return;
-
-	stepper->completion_callback = callback;
-	stepper->completion_context = context;
-}
-
 static void STEPPER_Timer_Callback(void* context) {
 	STEPPER_Handle* stepper = context;
 	if (stepper == 0 || stepper->target_steps == 0) return;
 
 	stepper->completed_steps++;
 	if (stepper->completed_steps >= stepper->target_steps) {
-		STEPPER_CompletionCallback completion_callback = stepper->completion_callback;
-		void* completion_context = stepper->completion_context;
-
 		STEPPER_Stop(stepper);
-		if (completion_callback != 0) completion_callback(completion_context);
+		if (stepper->completion_callback) {
+			stepper->completion_callback(stepper->completion_context);
+		}
 	}
+}
+
+void STEPPER_CompletionCallback_Register(STEPPER_Handle* handle, Completion_Callback completion_callback, void* completion_context) {
+	handle->completion_callback = completion_callback;
+	handle->completion_context = completion_context;
 }

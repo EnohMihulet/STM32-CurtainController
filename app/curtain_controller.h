@@ -30,12 +30,11 @@ typedef struct {
 } CURTAIN_Controller;
 
 CURTAIN_Result CURTAIN_Controller_Init();
+CURTAIN_Result CURTAIN_Controller_Update();
+
 STEPPER_Handle* CURTAIN_Controller_Stepper_Get(void);
 CURTAIN_State CURTAIN_Controller_State_Get(void);
 uint8_t CURTAIN_Controller_IsBusy(void);
 CURTAIN_Result CURTAIN_Controller_ChangeState(CURTAIN_State new_state);
-CURTAIN_Result CURTAIN_Controller_Up();
-CURTAIN_Result CURTAIN_Controller_DownOpen();
-CURTAIN_Result CURTAIN_Controller_DownClosed();
 CURTAIN_Result CURTAIN_Controller_Move(STEPPER_Direction direction, uint32_t steps);
 void CURTAIN_Controller_Stop(CURTAIN_State state);

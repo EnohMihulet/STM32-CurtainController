@@ -39,6 +39,8 @@ typedef struct {
 	TIM_OutputPolarity step_polarity;
 } STEPPER_Config;
 
+typedef void (*Completion_Callback)(void* context);
+
 typedef struct {
 	TIM_GP_TypeDef* step_timer;
 	TIM_Channel step_channel;
@@ -67,11 +69,9 @@ typedef struct {
 
 	STEPPER_Direction direction;
 
-	void (*completion_callback)(void* context);
+	Completion_Callback completion_callback;
 	void* completion_context;
 } STEPPER_Handle;
-
-typedef void (*STEPPER_CompletionCallback)(void* context);
 
 STEPPER_Result STEPPER_Init(STEPPER_Handle* stepper, const STEPPER_Config* config);
 
@@ -82,10 +82,9 @@ void STEPPER_Direction_Set(STEPPER_Handle* stepper, STEPPER_Direction direction)
 
 STEPPER_Result STEPPER_Start(STEPPER_Handle* stepper, uint32_t frequency_hz);
 STEPPER_Result STEPPER_Step(STEPPER_Handle* stepper, STEPPER_Direction direction, uint32_t steps, uint32_t frequency_hz);
-STEPPER_Result STEPPER_MoveSteps(STEPPER_Handle* stepper, STEPPER_Direction direction, uint32_t steps, uint32_t frequency_hz);
 void STEPPER_Stop(STEPPER_Handle* stepper);
 
 uint8_t STEPPER_IsBusy(STEPPER_Handle* stepper);
 uint32_t STEPPER_CompletedSteps_Get(STEPPER_Handle* stepper);
 
-void STEPPER_CompletionCallback_Register(STEPPER_Handle* stepper, STEPPER_CompletionCallback callback, void* context);
+void STEPPER_CompletionCallback_Register(STEPPER_Handle* handle, Completion_Callback completion_callback, void* context);
