@@ -3,12 +3,14 @@
 #include "board_button.h"
 #include "board_led.h"
 #include "curtain_controller.h"
+#include "esp.h"
 #include "exti.h"
 #include "limit_switch.h"
 #include "pwm.h"
 #include "shell.h"
 #include "step_output.h"
 #include "stepper_motor.h"
+#include "string_helper.h"
 
 #define SHELL_PWM_TIM TIM2
 #define SHELL_PWM_CHANNEL TIM_Channel_1
@@ -16,19 +18,6 @@
 static STEPPER_Handle* shell_stepper;
 
 static const SHELL_Command curtain_commands[];
-
-static uint8_t SHELL_CommandStringEquals(const char* a, const char* b) {
-	while (*a != '\0' && *b != '\0') {
-		if (*a != *b) {
-			return 0;
-		}
-
-		a++;
-		b++;
-	}
-
-	return *a == *b;
-}
 
 static SHELL_Result SHELL_ParseUnsigned(const char* s, uint32_t* value) {
 	uint32_t result = 0;
@@ -72,6 +61,35 @@ static void SHELL_WriteUnsigned(uint32_t value) {
 	}
 
 	SHELL_Write(&buf[i]);
+}
+
+static SHELL_Result SHELL_ESPResult_ToShell(ESP_Result result) {
+	switch (result) {
+	case ESP_Result_Ok: return SHELL_RESULT_OK;
+	case ESP_Result_InvalidCommand: return SHELL_RESULT_BAD_ARGUMENT;
+	case ESP_Result_Busy: return SHELL_RESULT_BUSY;
+	case ESP_Result_Capacity: return SHELL_RESULT_CAPACITY;
+	case ESP_Result_Error:
+	case ESP_Result_Timeout:
+	case ESP_Result_InvalidConfig:
+		return SHELL_RESULT_INTERNAL;
+	}
+
+	return SHELL_RESULT_INTERNAL;
+}
+
+static void SHELL_ESP_CompletionCallback(ESP_Result result, const char* response, const char* status, void* context) {
+	(void)result;
+	(void)context;
+
+	if (response != 0 && response[0] != '\0') {
+		SHELL_Write("ESP response:\r\n");
+		SHELL_Write(response);
+	}
+	SHELL_Write("ESP: ");
+	SHELL_Write(status != 0 ? status : "unknown result");
+	SHELL_Write("\r\n");
+	SHELL_Prompt_Write();
 }
 
 static SHELL_Result SHELL_CurtainResult_ToShell(CURTAIN_Result result) {
@@ -121,12 +139,12 @@ SHELL_Result SHELL_CommandHelp(int argc, const char* argv[]) {
 SHELL_Result SHELL_CommandLed(int argc, const char* argv[]) {
 	(void)argc;
 
-	if (SHELL_CommandStringEquals(argv[0], "on")) {
+	if (STRING_Equals(argv[0], "on")) {
 		LED_On();
 		return SHELL_RESULT_OK;
 	}
 
-	if (SHELL_CommandStringEquals(argv[0], "off")) {
+	if (STRING_Equals(argv[0], "off")) {
 		LED_Off();
 		return SHELL_RESULT_OK;
 	}
@@ -149,7 +167,7 @@ SHELL_Result SHELL_CommandButton(int argc, const char* argv[]) {
 }
 
 SHELL_Result SHELL_CommandPwm(int argc, const char* argv[]) {
-	if (SHELL_CommandStringEquals(argv[0], "start")) {
+	if (STRING_Equals(argv[0], "start")) {
 		if (argc != 1) return SHELL_RESULT_ARGUMENT_COUNT;
 
 		if (PWM_Channel_Start(SHELL_PWM_TIM, SHELL_PWM_CHANNEL) != PWM_Result_OK) return SHELL_RESULT_INVALID_STATE;
@@ -157,7 +175,7 @@ SHELL_Result SHELL_CommandPwm(int argc, const char* argv[]) {
 		return SHELL_RESULT_OK;
 	}
 
-	if (SHELL_CommandStringEquals(argv[0], "stop")) {
+	if (STRING_Equals(argv[0], "stop")) {
 		if (argc != 1) return SHELL_RESULT_ARGUMENT_COUNT;
 
 		if (PWM_Channel_Stop(SHELL_PWM_TIM, SHELL_PWM_CHANNEL) != PWM_Result_OK) return SHELL_RESULT_INVALID_STATE;
@@ -165,7 +183,7 @@ SHELL_Result SHELL_CommandPwm(int argc, const char* argv[]) {
 		return SHELL_RESULT_OK;
 	}
 
-	if (SHELL_CommandStringEquals(argv[0], "status")) {
+	if (STRING_Equals(argv[0], "status")) {
 		if (argc != 1) return SHELL_RESULT_ARGUMENT_COUNT;
 
 		SHELL_Write("PWM: ");
@@ -178,7 +196,7 @@ SHELL_Result SHELL_CommandPwm(int argc, const char* argv[]) {
 		return SHELL_RESULT_OK;
 	}
 
-	if (SHELL_CommandStringEquals(argv[0], "set")) {
+	if (STRING_Equals(argv[0], "set")) {
 		if (argc != 2) return SHELL_RESULT_ARGUMENT_COUNT;
 
 		uint32_t duty = 0;
@@ -193,7 +211,7 @@ SHELL_Result SHELL_CommandPwm(int argc, const char* argv[]) {
 		return SHELL_RESULT_OK;
 	}
 
-	if (SHELL_CommandStringEquals(argv[0], "duty")) {
+	if (STRING_Equals(argv[0], "duty")) {
 		if (argc != 2) return SHELL_RESULT_ARGUMENT_COUNT;
 
 		uint32_t percent = 0;
@@ -213,7 +231,7 @@ SHELL_Result SHELL_CommandPwm(int argc, const char* argv[]) {
 }
 
 SHELL_Result SHELL_CommandStep(int argc, const char* argv[]) {
-	if (SHELL_CommandStringEquals(argv[0], "start")) {
+	if (STRING_Equals(argv[0], "start")) {
 		if (argc != 1) return SHELL_RESULT_ARGUMENT_COUNT;
 
 		if (STEP_Output_Start() != STEP_Result_OK) return SHELL_RESULT_INVALID_STATE;
@@ -221,7 +239,7 @@ SHELL_Result SHELL_CommandStep(int argc, const char* argv[]) {
 		return SHELL_RESULT_OK;
 	}
 
-	if (SHELL_CommandStringEquals(argv[0], "stop")) {
+	if (STRING_Equals(argv[0], "stop")) {
 		if (argc != 1) return SHELL_RESULT_ARGUMENT_COUNT;
 
 		if (STEP_Output_Stop() != STEP_Result_OK) return SHELL_RESULT_INVALID_STATE;
@@ -229,7 +247,7 @@ SHELL_Result SHELL_CommandStep(int argc, const char* argv[]) {
 		return SHELL_RESULT_OK;
 	}
 
-	if (SHELL_CommandStringEquals(argv[0], "status")) {
+	if (STRING_Equals(argv[0], "status")) {
 		if (argc != 1) return SHELL_RESULT_ARGUMENT_COUNT;
 
 		SHELL_Write("STEP: ");
@@ -240,7 +258,7 @@ SHELL_Result SHELL_CommandStep(int argc, const char* argv[]) {
 		return SHELL_RESULT_OK;
 	}
 
-	if (SHELL_CommandStringEquals(argv[0], "freq") || SHELL_CommandStringEquals(argv[0], "set")) {
+	if (STRING_Equals(argv[0], "freq") || STRING_Equals(argv[0], "set")) {
 		if (argc != 2) return SHELL_RESULT_ARGUMENT_COUNT;
 
 		uint32_t frequency_hz = 0;
@@ -261,7 +279,7 @@ SHELL_Result SHELL_CommandStep(int argc, const char* argv[]) {
 SHELL_Result SHELL_CommandStepper(int argc, const char* argv[]) {
 	if (shell_stepper == 0) return SHELL_RESULT_INVALID_STATE;
 
-	if (SHELL_CommandStringEquals(argv[0], "start")) {
+	if (STRING_Equals(argv[0], "start")) {
 		if (argc > 2) return SHELL_RESULT_ARGUMENT_COUNT;
 
 		uint32_t frequency_hz = shell_stepper->step_frequency_hz;
@@ -279,7 +297,7 @@ SHELL_Result SHELL_CommandStepper(int argc, const char* argv[]) {
 		return SHELL_RESULT_OK;
 	}
 
-	if (SHELL_CommandStringEquals(argv[0], "stop")) {
+	if (STRING_Equals(argv[0], "stop")) {
 		if (argc != 1) return SHELL_RESULT_ARGUMENT_COUNT;
 
 		STEPPER_Stop(shell_stepper);
@@ -287,7 +305,7 @@ SHELL_Result SHELL_CommandStepper(int argc, const char* argv[]) {
 		return SHELL_RESULT_OK;
 	}
 
-	if (SHELL_CommandStringEquals(argv[0], "status")) {
+	if (STRING_Equals(argv[0], "status")) {
 		if (argc != 1) return SHELL_RESULT_ARGUMENT_COUNT;
 
 		SHELL_Write("Stepper: ");
@@ -304,13 +322,13 @@ SHELL_Result SHELL_CommandStepper(int argc, const char* argv[]) {
 		return SHELL_RESULT_OK;
 	}
 
-	if (SHELL_CommandStringEquals(argv[0], "dir")) {
+	if (STRING_Equals(argv[0], "dir")) {
 		if (argc != 2) return SHELL_RESULT_ARGUMENT_COUNT;
 
-		if (SHELL_CommandStringEquals(argv[1], "fwd") || SHELL_CommandStringEquals(argv[1], "forward")) {
+		if (STRING_Equals(argv[1], "fwd") || STRING_Equals(argv[1], "forward")) {
 			STEPPER_Direction_Set(shell_stepper, STEPPER_Direction_Forward);
 		}
-		else if (SHELL_CommandStringEquals(argv[1], "rev") || SHELL_CommandStringEquals(argv[1], "reverse")) {
+		else if (STRING_Equals(argv[1], "rev") || STRING_Equals(argv[1], "reverse")) {
 			STEPPER_Direction_Set(shell_stepper, STEPPER_Direction_Reverse);
 		}
 		else {
@@ -323,7 +341,7 @@ SHELL_Result SHELL_CommandStepper(int argc, const char* argv[]) {
 		return SHELL_RESULT_OK;
 	}
 
-	if (SHELL_CommandStringEquals(argv[0], "speed")) {
+	if (STRING_Equals(argv[0], "speed")) {
 		if (argc != 2) return SHELL_RESULT_ARGUMENT_COUNT;
 
 		uint32_t frequency_hz = 0;
@@ -338,7 +356,7 @@ SHELL_Result SHELL_CommandStepper(int argc, const char* argv[]) {
 		return SHELL_RESULT_OK;
 	}
 
-	if (SHELL_CommandStringEquals(argv[0], "move")) {
+	if (STRING_Equals(argv[0], "move")) {
 		if (argc < 2 || argc > 3) return SHELL_RESULT_ARGUMENT_COUNT;
 
 		uint32_t steps = 0;
@@ -376,7 +394,7 @@ SHELL_Result SHELL_CommandExti(int argc, const char* argv[]) {
 
 	EXTI_Line line = (EXTI_Line)line_number;
 
-	if (SHELL_CommandStringEquals(argv[0], "swier")) {
+	if (STRING_Equals(argv[0], "swier")) {
 		if (EXTI_SoftwareInterrupt_Generate(line) != EXTI_Result_OK) return SHELL_RESULT_INVALID_STATE;
 		SHELL_Write("EXTI: SWIER generated on line ");
 		SHELL_WriteUnsigned(line_number);
@@ -384,14 +402,14 @@ SHELL_Result SHELL_CommandExti(int argc, const char* argv[]) {
 		return SHELL_RESULT_OK;
 	}
 
-	if (SHELL_CommandStringEquals(argv[0], "pending")) {
+	if (STRING_Equals(argv[0], "pending")) {
 		SHELL_Write("EXTI: line ");
 		SHELL_WriteUnsigned(line_number);
 		SHELL_Write(EXTI_IsPending(line) ? " pending\r\n" : " not pending\r\n");
 		return SHELL_RESULT_OK;
 	}
 
-	if (SHELL_CommandStringEquals(argv[0], "clear")) {
+	if (STRING_Equals(argv[0], "clear")) {
 		if (EXTI_Pending_Clear(line) != EXTI_Result_OK) return SHELL_RESULT_INVALID_STATE;
 		SHELL_Write("EXTI: pending cleared on line ");
 		SHELL_WriteUnsigned(line_number);
@@ -421,7 +439,7 @@ SHELL_Result SHELL_CommandSwitch(int argc, const char* argv[]) {
 }
 
 SHELL_Result SHELL_CommandCurtain(int argc, const char* argv[]) {
-	if (SHELL_CommandStringEquals(argv[0], "status")) {
+	if (STRING_Equals(argv[0], "status")) {
 		if (argc != 1) return SHELL_RESULT_ARGUMENT_COUNT;
 
 		SHELL_Write("Curtain: state=");
@@ -432,36 +450,36 @@ SHELL_Result SHELL_CommandCurtain(int argc, const char* argv[]) {
 		return SHELL_RESULT_OK;
 	}
 
-	if (SHELL_CommandStringEquals(argv[0], "up")) {
+	if (STRING_Equals(argv[0], "up")) {
 		if (argc != 1) return SHELL_RESULT_ARGUMENT_COUNT;
 		return SHELL_CurtainResult_ToShell(CURTAIN_Controller_ChangeState(CURTAIN_Up));
 	}
 
-	if (SHELL_CommandStringEquals(argv[0], "open") || SHELL_CommandStringEquals(argv[0], "downopen")) {
+	if (STRING_Equals(argv[0], "open") || STRING_Equals(argv[0], "downopen")) {
 		if (argc != 1) return SHELL_RESULT_ARGUMENT_COUNT;
 		return SHELL_CurtainResult_ToShell(CURTAIN_Controller_ChangeState(CURTAIN_DownOpen));
 	}
 
-	if (SHELL_CommandStringEquals(argv[0], "closed") || SHELL_CommandStringEquals(argv[0], "downclosed")) {
+	if (STRING_Equals(argv[0], "closed") || STRING_Equals(argv[0], "downclosed")) {
 		if (argc != 1) return SHELL_RESULT_ARGUMENT_COUNT;
 		return SHELL_CurtainResult_ToShell(CURTAIN_Controller_ChangeState(CURTAIN_DownClosed));
 	}
 
-	if (SHELL_CommandStringEquals(argv[0], "stop")) {
+	if (STRING_Equals(argv[0], "stop")) {
 		if (argc != 1) return SHELL_RESULT_ARGUMENT_COUNT;
 		CURTAIN_Controller_Stop(CURTAIN_Unknown);
 		SHELL_Write("Curtain: stopped\r\n");
 		return SHELL_RESULT_OK;
 	}
 
-	if (SHELL_CommandStringEquals(argv[0], "move")) {
+	if (STRING_Equals(argv[0], "move")) {
 		if (argc != 3) return SHELL_RESULT_ARGUMENT_COUNT;
 
 		STEPPER_Direction direction;
-		if (SHELL_CommandStringEquals(argv[1], "up") || SHELL_CommandStringEquals(argv[1], "rev") || SHELL_CommandStringEquals(argv[1], "reverse")) {
+		if (STRING_Equals(argv[1], "up") || STRING_Equals(argv[1], "rev") || STRING_Equals(argv[1], "reverse")) {
 			direction = STEPPER_Direction_Reverse;
 		}
-		else if (SHELL_CommandStringEquals(argv[1], "down") || SHELL_CommandStringEquals(argv[1], "fwd") || SHELL_CommandStringEquals(argv[1], "forward")) {
+		else if (STRING_Equals(argv[1], "down") || STRING_Equals(argv[1], "fwd") || STRING_Equals(argv[1], "forward")) {
 			direction = STEPPER_Direction_Forward;
 		}
 		else {
@@ -486,6 +504,22 @@ SHELL_Result SHELL_CommandCurtain(int argc, const char* argv[]) {
 	return SHELL_RESULT_BAD_ARGUMENT;
 }
 
+static SHELL_Result SHELL_CommandESP(int argc, const char* argv[]) {
+	if (argc < 1 || argc > 2) return SHELL_RESULT_ARGUMENT_COUNT;
+	if (!STRING_Equals(argv[0], "test")) return SHELL_RESULT_BAD_ARGUMENT;
+
+	const char* command = argc == 1 ? "AT" : argv[1];
+
+	SHELL_Result send_result = SHELL_ESPResult_ToShell(ESP_Command_Send(command));
+	if (send_result != SHELL_RESULT_OK) return send_result;
+
+	SHELL_Write("Sending ");
+	SHELL_Write(command);
+	SHELL_Write("...\r\n");
+	SHELL_Prompt_Defer();
+	return SHELL_RESULT_OK;
+}
+
 static const SHELL_Command curtain_commands[] = {
 	{"help", SHELL_CommandHelp, 0, 1, "List available commands"},
 	{"led", SHELL_CommandLed, 1, 1, "Set onboard LED: led on|off"},
@@ -496,9 +530,11 @@ static const SHELL_Command curtain_commands[] = {
 	{"switch", SHELL_CommandSwitch, 0, 0, "Read switch state as active or released"},
 	{"stepper", SHELL_CommandStepper, 1, 3, "Control stepper: stepper start [hz]|stop|status|dir fwd|rev|speed <hz>|move <steps> [hz]"},
 	{"curtain", SHELL_CommandCurtain, 1, 3, "Control curtain: curtain up|open|closed|status|stop|move up|down <steps>"},
+	{"esp", SHELL_CommandESP, 1, 2, "ESP-AT test: esp test [AT command]"},
 };
 
-void Curtain_ShellCommands_Init(STEPPER_Handle* stepper) {
+void CURTAIN_ShellCommands_Init(STEPPER_Handle* stepper) {
 	shell_stepper = stepper;
+	ESP_CompletionCallback_Register(SHELL_ESP_CompletionCallback, 0);
 	SHELL_Commands_Set(curtain_commands, (uint32_t)(sizeof(curtain_commands) / sizeof(curtain_commands[0])));
 }

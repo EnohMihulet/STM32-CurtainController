@@ -56,8 +56,8 @@ static const STEPPER_Config stepper_config = {
 	.step_polarity = TIM_OutputPolarity_ActiveHigh,
 };
 
-#define UPPER_LIMIT_SWITCH_PORT GPIOA
-#define UPPER_LIMIT_SWITCH_PIN GPIO_Pin_9
+#define UPPER_LIMIT_SWITCH_PORT GPIOB
+#define UPPER_LIMIT_SWITCH_PIN GPIO_Pin_10
 #define LOWER_LIMIT_SWITCH_PORT GPIOA
 #define LOWER_LIMIT_SWITCH_PIN GPIO_Pin_8
 
