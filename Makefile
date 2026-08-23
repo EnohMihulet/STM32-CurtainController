@@ -13,9 +13,10 @@ LIB_DIR ?= ../STM32-BareMetal-Lib
 BUILD_DIR = build
 
 APP_SOURCES	= $(wildcard app/*.c)
+CORE_SOURCES	= $(wildcard $(LIB_DIR)/core/*.c)
 DRIVER_SOURCES	= $(wildcard $(LIB_DIR)/drivers/src/*.c)
 SHELL_SOURCES	= $(LIB_DIR)/shell/shell.c
-C_SOURCES	= $(APP_SOURCES) $(DRIVER_SOURCES) $(SHELL_SOURCES)
+C_SOURCES	= $(APP_SOURCES) $(CORE_SOURCES) $(DRIVER_SOURCES) $(SHELL_SOURCES)
 ASM_SOURCES	= $(LIB_DIR)/startup/mcl_startup.s
 LD_SCRIPT	= $(LIB_DIR)/linker/mcl_stm32f446re.ld
 
@@ -27,7 +28,7 @@ C_FLAGS = $(MCU) -Iapp -I$(LIB_DIR)/core -I$(LIB_DIR)/drivers/inc -I$(LIB_DIR)/s
 LD_FLAGS = $(MCU) -T$(LD_SCRIPT) -Wl,-Map=$(TARGET).map -Wl,--gc-sections -nostdlib
 LD_LIBS  = -lgcc
 
-vpath %.c app $(LIB_DIR)/drivers/src $(LIB_DIR)/shell
+vpath %.c app $(LIB_DIR)/core $(LIB_DIR)/drivers/src $(LIB_DIR)/shell
 vpath %.s $(LIB_DIR)/startup
 
 .PHONY: all elf bin hex clean

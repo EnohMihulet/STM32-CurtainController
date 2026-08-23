@@ -67,8 +67,6 @@ static SHELL_Result SHELL_ESPResult_ToShell(ESP_Result result) {
 	switch (result) {
 	case ESP_Result_Ok: return SHELL_RESULT_OK;
 	case ESP_Result_InvalidCommand: return SHELL_RESULT_BAD_ARGUMENT;
-	case ESP_Result_Busy: return SHELL_RESULT_BUSY;
-	case ESP_Result_Capacity: return SHELL_RESULT_CAPACITY;
 	case ESP_Result_Error:
 	case ESP_Result_Timeout:
 	case ESP_Result_InvalidConfig:
@@ -76,20 +74,6 @@ static SHELL_Result SHELL_ESPResult_ToShell(ESP_Result result) {
 	}
 
 	return SHELL_RESULT_INTERNAL;
-}
-
-static void SHELL_ESP_CompletionCallback(ESP_Result result, const char* response, const char* status, void* context) {
-	(void)result;
-	(void)context;
-
-	if (response != 0 && response[0] != '\0') {
-		SHELL_Write("ESP response:\r\n");
-		SHELL_Write(response);
-	}
-	SHELL_Write("ESP: ");
-	SHELL_Write(status != 0 ? status : "unknown result");
-	SHELL_Write("\r\n");
-	SHELL_Prompt_Write();
 }
 
 static SHELL_Result SHELL_CurtainResult_ToShell(CURTAIN_Result result) {
@@ -505,19 +489,124 @@ SHELL_Result SHELL_CommandCurtain(int argc, const char* argv[]) {
 }
 
 static SHELL_Result SHELL_CommandESP(int argc, const char* argv[]) {
-	if (argc < 1 || argc > 2) return SHELL_RESULT_ARGUMENT_COUNT;
-	if (!STRING_Equals(argv[0], "test")) return SHELL_RESULT_BAD_ARGUMENT;
+	if (argc != 1) return SHELL_RESULT_ARGUMENT_COUNT;
+	return SHELL_ESPResult_ToShell(ESP_TestCommand_Execute(argv[0]));
+}
 
-	const char* command = argc == 1 ? "AT" : argv[1];
+static SHELL_Result SHELL_CommandTCP(int argc, const char* argv[]) {
+	(void)argc;
+	if (!STRING_Equals(argv[0], "status")) return SHELL_RESULT_BAD_ARGUMENT;
+	return SHELL_ESPResult_ToShell(ESP_TCPStatus_Query());
+}
 
-	SHELL_Result send_result = SHELL_ESPResult_ToShell(ESP_Command_Send(command));
-	if (send_result != SHELL_RESULT_OK) return send_result;
+static const char* SHELL_ESPModeName(ESP_Mode mode) {
+	switch (mode) {
+	case ESP_Mode_Unknown: return "unknown";
+	case ESP_Mode_Null: return "null (RF off)";
+	case ESP_Mode_Station: return "station";
+	case ESP_Mode_SoftAP: return "soft AP";
+	case ESP_Mode_StationSoftAP: return "station + soft AP";
+	}
 
-	SHELL_Write("Sending ");
-	SHELL_Write(command);
-	SHELL_Write("...\r\n");
-	SHELL_Prompt_Defer();
-	return SHELL_RESULT_OK;
+	return "invalid";
+}
+
+static const char* SHELL_ESPWifiStateName(ESP_WifiState state) {
+	switch (state) {
+	case ESP_WifiState_Unknown: return "unknown";
+	case ESP_WifiState_Disconnected: return "disconnected";
+	case ESP_WifiState_Connected: return "associated; IP not confirmed";
+	case ESP_WifiState_GotIP: return "associated; IP acquired";
+	}
+
+	return "invalid";
+}
+
+static void SHELL_WifiSSID_Write(void) {
+	const char* ssid = ESP_SSID_Get();
+	SHELL_Write("SSID: ");
+	if (ssid != 0) {
+		SHELL_Write("\"");
+		SHELL_Write(ssid);
+		SHELL_Write("\"");
+	}
+	else if (ESP_WifiState_Get() == ESP_WifiState_Disconnected) {
+		SHELL_Write("none (disconnected)");
+	}
+	else {
+		SHELL_Write("unknown (not queried)");
+	}
+	SHELL_Write("\r\n");
+}
+
+static void SHELL_WifiIP_Write(void) {
+	const uint8_t* ip = ESP_IP_Get();
+	SHELL_Write("Station IP: ");
+	if (ip != 0) {
+		char buffer[16];
+		(void)STRING_snprintf(
+			buffer,
+			sizeof(buffer),
+			"%u.%u.%u.%u",
+			(unsigned int)ip[0],
+			(unsigned int)ip[1],
+			(unsigned int)ip[2],
+			(unsigned int)ip[3]
+		);
+		SHELL_Write(buffer);
+	}
+	else if (ESP_WifiState_Get() == ESP_WifiState_Disconnected) {
+		SHELL_Write("none (disconnected)");
+	}
+	else if (ESP_WifiState_Get() == ESP_WifiState_GotIP) {
+		SHELL_Write("acquired; address not queried");
+	}
+	else {
+		SHELL_Write("unknown");
+	}
+	SHELL_Write("\r\n");
+}
+
+static SHELL_Result SHELL_CommandWifi(int argc, const char* argv[]) {
+	(void)argc;
+
+	if (STRING_Equals(argv[0], "status")) {
+		SHELL_Write("WiFi status (cached):\r\n");
+		SHELL_Write("Mode: ");
+		SHELL_Write(SHELL_ESPModeName(ESP_Mode_Get()));
+		SHELL_Write("\r\nState: ");
+		SHELL_Write(SHELL_ESPWifiStateName(ESP_WifiState_Get()));
+		SHELL_Write("\r\n");
+		SHELL_WifiSSID_Write();
+		SHELL_WifiIP_Write();
+		return SHELL_RESULT_OK;
+	}
+
+	if (STRING_Equals(argv[0], "mode")) {
+		SHELL_Write("WiFi mode: ");
+		SHELL_Write(SHELL_ESPModeName(ESP_Mode_Get()));
+		SHELL_Write("\r\n");
+		return SHELL_RESULT_OK;
+	}
+
+	if (STRING_Equals(argv[0], "connected") || STRING_Equals(argv[0], "state")) {
+		SHELL_Write("WiFi state: ");
+		SHELL_Write(SHELL_ESPWifiStateName(ESP_WifiState_Get()));
+		SHELL_Write("\r\n");
+		return SHELL_RESULT_OK;
+	}
+
+	if (STRING_Equals(argv[0], "ssid")) {
+		SHELL_WifiSSID_Write();
+		return SHELL_RESULT_OK;
+	}
+
+	if (STRING_Equals(argv[0], "ip")) {
+		SHELL_WifiIP_Write();
+		return SHELL_RESULT_OK;
+	}
+
+	return SHELL_RESULT_BAD_ARGUMENT;
 }
 
 static const SHELL_Command curtain_commands[] = {
@@ -530,11 +619,12 @@ static const SHELL_Command curtain_commands[] = {
 	{"switch", SHELL_CommandSwitch, 0, 0, "Read switch state as active or released"},
 	{"stepper", SHELL_CommandStepper, 1, 3, "Control stepper: stepper start [hz]|stop|status|dir fwd|rev|speed <hz>|move <steps> [hz]"},
 	{"curtain", SHELL_CommandCurtain, 1, 3, "Control curtain: curtain up|open|closed|status|stop|move up|down <steps>"},
-	{"esp", SHELL_CommandESP, 1, 2, "ESP-AT test: esp test [AT command]"},
+	{"esp", SHELL_CommandESP, 1, 1, "Send one ESP-AT test command: esp <command>"},
+	{"tcp", SHELL_CommandTCP, 1, 1, "Query ESP TCP connections: tcp status"},
+	{"wifi", SHELL_CommandWifi, 1, 1, "Show cached WiFi data: wifi status|mode|state|connected|ssid|ip"},
 };
 
 void CURTAIN_ShellCommands_Init(STEPPER_Handle* stepper) {
 	shell_stepper = stepper;
-	ESP_CompletionCallback_Register(SHELL_ESP_CompletionCallback, 0);
 	SHELL_Commands_Set(curtain_commands, (uint32_t)(sizeof(curtain_commands) / sizeof(curtain_commands[0])));
 }
