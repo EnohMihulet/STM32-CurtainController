@@ -15,8 +15,9 @@ BUILD_DIR = build
 APP_SOURCES	= $(wildcard app/*.c)
 CORE_SOURCES	= $(wildcard $(LIB_DIR)/core/*.c)
 DRIVER_SOURCES	= $(wildcard $(LIB_DIR)/drivers/src/*.c)
+DEVICE_SOURCES	= $(wildcard $(LIB_DIR)/devices/esp_at/*.c)
 SHELL_SOURCES	= $(LIB_DIR)/shell/shell.c
-C_SOURCES	= $(APP_SOURCES) $(CORE_SOURCES) $(DRIVER_SOURCES) $(SHELL_SOURCES)
+C_SOURCES	= $(APP_SOURCES) $(CORE_SOURCES) $(DRIVER_SOURCES) $(DEVICE_SOURCES) $(SHELL_SOURCES)
 ASM_SOURCES	= $(LIB_DIR)/startup/mcl_startup.s
 LD_SCRIPT	= $(LIB_DIR)/linker/mcl_stm32f446re.ld
 
@@ -24,11 +25,11 @@ OBJECTS	= $(addprefix $(BUILD_DIR)/,$(notdir $(C_SOURCES:.c=.o)))
 OBJECTS	+= $(BUILD_DIR)/$(notdir $(ASM_SOURCES:.s=.o))
 DEPFILES = $(OBJECTS:.o=.d)
 
-C_FLAGS = $(MCU) -Iapp -I$(LIB_DIR)/core -I$(LIB_DIR)/drivers/inc -I$(LIB_DIR)/shell -Wall -Wextra -O0 -g -MMD -MP
+C_FLAGS = $(MCU) -Iapp -I$(LIB_DIR)/core -I$(LIB_DIR)/drivers/inc -I$(LIB_DIR)/devices/esp_at -I$(LIB_DIR)/shell -Wall -Wextra -O0 -g -MMD -MP
 LD_FLAGS = $(MCU) -T$(LD_SCRIPT) -Wl,-Map=$(TARGET).map -Wl,--gc-sections -nostdlib
 LD_LIBS  = -lgcc
 
-vpath %.c app $(LIB_DIR)/core $(LIB_DIR)/drivers/src $(LIB_DIR)/shell
+vpath %.c app $(LIB_DIR)/core $(LIB_DIR)/drivers/src $(LIB_DIR)/devices/esp_at $(LIB_DIR)/shell
 vpath %.s $(LIB_DIR)/startup
 
 .PHONY: all elf bin hex clean

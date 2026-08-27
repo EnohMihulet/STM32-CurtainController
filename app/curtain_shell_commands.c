@@ -3,7 +3,7 @@
 #include "board_button.h"
 #include "board_led.h"
 #include "curtain_controller.h"
-#include "esp.h"
+#include "esp_at.h"
 #include "exti.h"
 #include "limit_switch.h"
 #include "pwm.h"
@@ -44,28 +44,12 @@ static SHELL_Result SHELL_ParseUnsigned(const char* s, uint32_t* value) {
 	return SHELL_RESULT_OK;
 }
 
-static void SHELL_WriteUnsigned(uint32_t value) {
-	char buf[11];
-	uint32_t i = sizeof(buf);
-
-	buf[--i] = '\0';
-
-	if (value == 0) {
-		SHELL_Write("0");
-		return;
-	}
-
-	while (value > 0 && i > 0) {
-		buf[--i] = (char)('0' + (value % 10U));
-		value /= 10U;
-	}
-
-	SHELL_Write(&buf[i]);
-}
-
 static SHELL_Result SHELL_ESPResult_ToShell(ESP_Result result) {
 	switch (result) {
 	case ESP_Result_Ok: return SHELL_RESULT_OK;
+	case ESP_Result_Busy: return SHELL_RESULT_BUSY;
+	case ESP_Result_Capacity: return SHELL_RESULT_CAPACITY;
+	case ESP_Result_Disconnected: return SHELL_RESULT_INVALID_STATE;
 	case ESP_Result_InvalidCommand: return SHELL_RESULT_BAD_ARGUMENT;
 	case ESP_Result_Error:
 	case ESP_Result_Timeout:
@@ -103,11 +87,11 @@ static const char* SHELL_CurtainStateName(CURTAIN_State state) {
 	return "invalid";
 }
 
-SHELL_Result SHELL_CommandHelp(int argc, const char* argv[]) {
+SHELL_Result SHELL_CommandHelp(const SHELL_Output* output, int argc, const char* argv[]) {
 	if (argc == 0) {
 		(void)argv;
 	
-		SHELL_PrintCommandList();
+		SHELL_PrintCommandList(output);
 		return SHELL_RESULT_OK;
 	}
 
@@ -116,11 +100,12 @@ SHELL_Result SHELL_CommandHelp(int argc, const char* argv[]) {
 		return SHELL_RESULT_UNKNOWN_COMMAND;
 	}
 
-	SHELL_PrintCommand(command);
+	SHELL_PrintCommand(output, command);
 	return SHELL_RESULT_OK;
 }
 
-SHELL_Result SHELL_CommandLed(int argc, const char* argv[]) {
+SHELL_Result SHELL_CommandLed(const SHELL_Output* output, int argc, const char* argv[]) {
+	(void)output;
 	(void)argc;
 
 	if (STRING_Equals(argv[0], "on")) {
@@ -136,26 +121,26 @@ SHELL_Result SHELL_CommandLed(int argc, const char* argv[]) {
 	return SHELL_RESULT_BAD_ARGUMENT;
 }
 
-SHELL_Result SHELL_CommandButton(int argc, const char* argv[]) {
+SHELL_Result SHELL_CommandButton(const SHELL_Output* output, int argc, const char* argv[]) {
 	(void)argc;
 	(void)argv;
 
 	if (Board_Button_IsPressed()) {
-		SHELL_Write("Button: pressed\r\n");
+		SHELL_Write(output, "Button: pressed\r\n");
 	}
 	else {
-		SHELL_Write("Button: released\r\n");
+		SHELL_Write(output, "Button: released\r\n");
 	}
 
 	return SHELL_RESULT_OK;
 }
 
-SHELL_Result SHELL_CommandPwm(int argc, const char* argv[]) {
+SHELL_Result SHELL_CommandPwm(const SHELL_Output* output, int argc, const char* argv[]) {
 	if (STRING_Equals(argv[0], "start")) {
 		if (argc != 1) return SHELL_RESULT_ARGUMENT_COUNT;
 
 		if (PWM_Channel_Start(SHELL_PWM_TIM, SHELL_PWM_CHANNEL) != PWM_Result_OK) return SHELL_RESULT_INVALID_STATE;
-		SHELL_Write("PWM: started\r\n");
+		SHELL_Write(output, "PWM: started\r\n");
 		return SHELL_RESULT_OK;
 	}
 
@@ -163,20 +148,20 @@ SHELL_Result SHELL_CommandPwm(int argc, const char* argv[]) {
 		if (argc != 1) return SHELL_RESULT_ARGUMENT_COUNT;
 
 		if (PWM_Channel_Stop(SHELL_PWM_TIM, SHELL_PWM_CHANNEL) != PWM_Result_OK) return SHELL_RESULT_INVALID_STATE;
-		SHELL_Write("PWM: stopped\r\n");
+		SHELL_Write(output, "PWM: stopped\r\n");
 		return SHELL_RESULT_OK;
 	}
 
 	if (STRING_Equals(argv[0], "status")) {
 		if (argc != 1) return SHELL_RESULT_ARGUMENT_COUNT;
 
-		SHELL_Write("PWM: ");
-		SHELL_Write(PWM_Channel_IsStarted(SHELL_PWM_TIM, SHELL_PWM_CHANNEL) ? "started" : "stopped");
-		SHELL_Write(", duty=");
-		SHELL_WriteUnsigned(PWM_Duty_Get(SHELL_PWM_TIM, SHELL_PWM_CHANNEL));
-		SHELL_Write("/1000 (approx ");
-		SHELL_WriteUnsigned(PWM_Duty_Get(SHELL_PWM_TIM, SHELL_PWM_CHANNEL) / 10U);
-		SHELL_Write("%)\r\n");
+		SHELL_Write(output, "PWM: ");
+		SHELL_Write(output, PWM_Channel_IsStarted(SHELL_PWM_TIM, SHELL_PWM_CHANNEL) ? "started" : "stopped");
+		SHELL_Write(output, ", duty=");
+		SHELL_WriteUnsigned(output, PWM_Duty_Get(SHELL_PWM_TIM, SHELL_PWM_CHANNEL));
+		SHELL_Write(output, "/1000 (approx ");
+		SHELL_WriteUnsigned(output, PWM_Duty_Get(SHELL_PWM_TIM, SHELL_PWM_CHANNEL) / 10U);
+		SHELL_Write(output, "%)\r\n");
 		return SHELL_RESULT_OK;
 	}
 
@@ -189,9 +174,9 @@ SHELL_Result SHELL_CommandPwm(int argc, const char* argv[]) {
 		if (duty > PWM_DUTY_MAX) return SHELL_RESULT_OUT_OF_RANGE;
 
 		if (PWM_Duty_Set(SHELL_PWM_TIM, SHELL_PWM_CHANNEL, (uint16_t)duty) != PWM_Result_OK) return SHELL_RESULT_INVALID_STATE;
-		SHELL_Write("PWM: duty set to ");
-		SHELL_WriteUnsigned(duty);
-		SHELL_Write("/1000\r\n");
+		SHELL_Write(output, "PWM: duty set to ");
+		SHELL_WriteUnsigned(output, duty);
+		SHELL_Write(output, "/1000\r\n");
 		return SHELL_RESULT_OK;
 	}
 
@@ -205,21 +190,21 @@ SHELL_Result SHELL_CommandPwm(int argc, const char* argv[]) {
 
 		uint32_t duty = percent * 10U;
 		if (PWM_Duty_Set(SHELL_PWM_TIM, SHELL_PWM_CHANNEL, (uint16_t)duty) != PWM_Result_OK) return SHELL_RESULT_INVALID_STATE;
-		SHELL_Write("PWM: duty set to ");
-		SHELL_WriteUnsigned(percent);
-		SHELL_Write("%\r\n");
+		SHELL_Write(output, "PWM: duty set to ");
+		SHELL_WriteUnsigned(output, percent);
+		SHELL_Write(output, "%\r\n");
 		return SHELL_RESULT_OK;
 	}
 
 	return SHELL_RESULT_BAD_ARGUMENT;
 }
 
-SHELL_Result SHELL_CommandStep(int argc, const char* argv[]) {
+SHELL_Result SHELL_CommandStep(const SHELL_Output* output, int argc, const char* argv[]) {
 	if (STRING_Equals(argv[0], "start")) {
 		if (argc != 1) return SHELL_RESULT_ARGUMENT_COUNT;
 
 		if (STEP_Output_Start() != STEP_Result_OK) return SHELL_RESULT_INVALID_STATE;
-		SHELL_Write("STEP: started\r\n");
+		SHELL_Write(output, "STEP: started\r\n");
 		return SHELL_RESULT_OK;
 	}
 
@@ -227,18 +212,18 @@ SHELL_Result SHELL_CommandStep(int argc, const char* argv[]) {
 		if (argc != 1) return SHELL_RESULT_ARGUMENT_COUNT;
 
 		if (STEP_Output_Stop() != STEP_Result_OK) return SHELL_RESULT_INVALID_STATE;
-		SHELL_Write("STEP: stopped\r\n");
+		SHELL_Write(output, "STEP: stopped\r\n");
 		return SHELL_RESULT_OK;
 	}
 
 	if (STRING_Equals(argv[0], "status")) {
 		if (argc != 1) return SHELL_RESULT_ARGUMENT_COUNT;
 
-		SHELL_Write("STEP: ");
-		SHELL_Write(STEP_Output_IsStarted() ? "started" : "stopped");
-		SHELL_Write(", frequency=");
-		SHELL_WriteUnsigned(STEP_Output_Frequency_Get());
-		SHELL_Write(" Hz, duty=50%\r\n");
+		SHELL_Write(output, "STEP: ");
+		SHELL_Write(output, STEP_Output_IsStarted() ? "started" : "stopped");
+		SHELL_Write(output, ", frequency=");
+		SHELL_WriteUnsigned(output, STEP_Output_Frequency_Get());
+		SHELL_Write(output, " Hz, duty=50%\r\n");
 		return SHELL_RESULT_OK;
 	}
 
@@ -251,16 +236,16 @@ SHELL_Result SHELL_CommandStep(int argc, const char* argv[]) {
 		if (frequency_hz == 0) return SHELL_RESULT_OUT_OF_RANGE;
 
 		if (STEP_Output_Frequency_Set(frequency_hz) != STEP_Result_OK) return SHELL_RESULT_INVALID_STATE;
-		SHELL_Write("STEP: frequency set to ");
-		SHELL_WriteUnsigned(STEP_Output_Frequency_Get());
-		SHELL_Write(" Hz\r\n");
+		SHELL_Write(output, "STEP: frequency set to ");
+		SHELL_WriteUnsigned(output, STEP_Output_Frequency_Get());
+		SHELL_Write(output, " Hz\r\n");
 		return SHELL_RESULT_OK;
 	}
 
 	return SHELL_RESULT_BAD_ARGUMENT;
 }
 
-SHELL_Result SHELL_CommandStepper(int argc, const char* argv[]) {
+SHELL_Result SHELL_CommandStepper(const SHELL_Output* output, int argc, const char* argv[]) {
 	if (shell_stepper == 0) return SHELL_RESULT_INVALID_STATE;
 
 	if (STRING_Equals(argv[0], "start")) {
@@ -275,9 +260,9 @@ SHELL_Result SHELL_CommandStepper(int argc, const char* argv[]) {
 
 		if (STEPPER_Enable(shell_stepper) != STEPPER_Result_Ok) return SHELL_RESULT_INVALID_STATE;
 		if (STEPPER_Start(shell_stepper, frequency_hz) != STEPPER_Result_Ok) return SHELL_RESULT_INVALID_STATE;
-		SHELL_Write("Stepper: started at ");
-		SHELL_WriteUnsigned(shell_stepper->step_frequency_hz);
-		SHELL_Write(" Hz\r\n");
+		SHELL_Write(output, "Stepper: started at ");
+		SHELL_WriteUnsigned(output, shell_stepper->step_frequency_hz);
+		SHELL_Write(output, " Hz\r\n");
 		return SHELL_RESULT_OK;
 	}
 
@@ -285,24 +270,24 @@ SHELL_Result SHELL_CommandStepper(int argc, const char* argv[]) {
 		if (argc != 1) return SHELL_RESULT_ARGUMENT_COUNT;
 
 		STEPPER_Stop(shell_stepper);
-		SHELL_Write("Stepper: stopped\r\n");
+		SHELL_Write(output, "Stepper: stopped\r\n");
 		return SHELL_RESULT_OK;
 	}
 
 	if (STRING_Equals(argv[0], "status")) {
 		if (argc != 1) return SHELL_RESULT_ARGUMENT_COUNT;
 
-		SHELL_Write("Stepper: ");
-		SHELL_Write(STEPPER_IsBusy(shell_stepper) ? "started" : "stopped");
-		SHELL_Write(", direction=");
-		SHELL_Write(shell_stepper->direction == STEPPER_Direction_Forward ? "fwd" : "rev");
-		SHELL_Write(", speed=");
-		SHELL_WriteUnsigned(shell_stepper->step_frequency_hz);
-		SHELL_Write(" Hz, completed=");
-		SHELL_WriteUnsigned(STEPPER_CompletedSteps_Get(shell_stepper));
-		SHELL_Write(", ");
-		SHELL_Write(shell_stepper->enabled ? "enabled" : "disabled");
-		SHELL_Write("\r\n");
+		SHELL_Write(output, "Stepper: ");
+		SHELL_Write(output, STEPPER_IsBusy(shell_stepper) ? "started" : "stopped");
+		SHELL_Write(output, ", direction=");
+		SHELL_Write(output, shell_stepper->direction == STEPPER_Direction_Forward ? "fwd" : "rev");
+		SHELL_Write(output, ", speed=");
+		SHELL_WriteUnsigned(output, shell_stepper->step_frequency_hz);
+		SHELL_Write(output, " Hz, completed=");
+		SHELL_WriteUnsigned(output, STEPPER_CompletedSteps_Get(shell_stepper));
+		SHELL_Write(output, ", ");
+		SHELL_Write(output, shell_stepper->enabled ? "enabled" : "disabled");
+		SHELL_Write(output, "\r\n");
 		return SHELL_RESULT_OK;
 	}
 
@@ -319,9 +304,9 @@ SHELL_Result SHELL_CommandStepper(int argc, const char* argv[]) {
 			return SHELL_RESULT_BAD_ARGUMENT;
 		}
 
-		SHELL_Write("Stepper: direction set to ");
-		SHELL_Write(shell_stepper->direction == STEPPER_Direction_Forward ? "fwd" : "rev");
-		SHELL_Write("\r\n");
+		SHELL_Write(output, "Stepper: direction set to ");
+		SHELL_Write(output, shell_stepper->direction == STEPPER_Direction_Forward ? "fwd" : "rev");
+		SHELL_Write(output, "\r\n");
 		return SHELL_RESULT_OK;
 	}
 
@@ -334,9 +319,9 @@ SHELL_Result SHELL_CommandStepper(int argc, const char* argv[]) {
 		if (frequency_hz == 0) return SHELL_RESULT_OUT_OF_RANGE;
 
 		if (STEPPER_Start(shell_stepper, frequency_hz) != STEPPER_Result_Ok) return SHELL_RESULT_INVALID_STATE;
-		SHELL_Write("Stepper: speed set to ");
-		SHELL_WriteUnsigned(shell_stepper->step_frequency_hz);
-		SHELL_Write(" Hz\r\n");
+		SHELL_Write(output, "Stepper: speed set to ");
+		SHELL_WriteUnsigned(output, shell_stepper->step_frequency_hz);
+		SHELL_Write(output, " Hz\r\n");
 		return SHELL_RESULT_OK;
 	}
 
@@ -357,18 +342,18 @@ SHELL_Result SHELL_CommandStepper(int argc, const char* argv[]) {
 
 		if (STEPPER_Enable(shell_stepper) != STEPPER_Result_Ok) return SHELL_RESULT_INVALID_STATE;
 		if (STEPPER_Step(shell_stepper, shell_stepper->direction, steps, frequency_hz) != STEPPER_Result_Ok) return SHELL_RESULT_INVALID_STATE;
-		SHELL_Write("Stepper: moving ");
-		SHELL_WriteUnsigned(steps);
-		SHELL_Write(" steps at ");
-		SHELL_WriteUnsigned(shell_stepper->step_frequency_hz);
-		SHELL_Write(" Hz\r\n");
+		SHELL_Write(output, "Stepper: moving ");
+		SHELL_WriteUnsigned(output, steps);
+		SHELL_Write(output, " steps at ");
+		SHELL_WriteUnsigned(output, shell_stepper->step_frequency_hz);
+		SHELL_Write(output, " Hz\r\n");
 		return SHELL_RESULT_OK;
 	}
 
 	return SHELL_RESULT_BAD_ARGUMENT;
 }
 
-SHELL_Result SHELL_CommandExti(int argc, const char* argv[]) {
+SHELL_Result SHELL_CommandExti(const SHELL_Output* output, int argc, const char* argv[]) {
 	(void)argc;
 
 	uint32_t line_number = 0;
@@ -380,31 +365,31 @@ SHELL_Result SHELL_CommandExti(int argc, const char* argv[]) {
 
 	if (STRING_Equals(argv[0], "swier")) {
 		if (EXTI_SoftwareInterrupt_Generate(line) != EXTI_Result_OK) return SHELL_RESULT_INVALID_STATE;
-		SHELL_Write("EXTI: SWIER generated on line ");
-		SHELL_WriteUnsigned(line_number);
-		SHELL_Write("\r\n");
+		SHELL_Write(output, "EXTI: SWIER generated on line ");
+		SHELL_WriteUnsigned(output, line_number);
+		SHELL_Write(output, "\r\n");
 		return SHELL_RESULT_OK;
 	}
 
 	if (STRING_Equals(argv[0], "pending")) {
-		SHELL_Write("EXTI: line ");
-		SHELL_WriteUnsigned(line_number);
-		SHELL_Write(EXTI_IsPending(line) ? " pending\r\n" : " not pending\r\n");
+		SHELL_Write(output, "EXTI: line ");
+		SHELL_WriteUnsigned(output, line_number);
+		SHELL_Write(output, EXTI_IsPending(line) ? " pending\r\n" : " not pending\r\n");
 		return SHELL_RESULT_OK;
 	}
 
 	if (STRING_Equals(argv[0], "clear")) {
 		if (EXTI_Pending_Clear(line) != EXTI_Result_OK) return SHELL_RESULT_INVALID_STATE;
-		SHELL_Write("EXTI: pending cleared on line ");
-		SHELL_WriteUnsigned(line_number);
-		SHELL_Write("\r\n");
+		SHELL_Write(output, "EXTI: pending cleared on line ");
+		SHELL_WriteUnsigned(output, line_number);
+		SHELL_Write(output, "\r\n");
 		return SHELL_RESULT_OK;
 	}
 
 	return SHELL_RESULT_BAD_ARGUMENT;
 }
 
-SHELL_Result SHELL_CommandSwitch(int argc, const char* argv[]) {
+SHELL_Result SHELL_CommandSwitch(const SHELL_Output* output, int argc, const char* argv[]) {
 	(void)argc;
 	(void)argv;
 	GPIO_Config switch_config = {
@@ -416,21 +401,21 @@ SHELL_Result SHELL_CommandSwitch(int argc, const char* argv[]) {
 		.pull = GPIO_Pull_Up,
 	};
 
-	SHELL_Write("Limit: ");
-	SHELL_Write(LIMIT_SWITCH_IsActive(&switch_config) ? "active" : "released");
-	SHELL_Write("\r\n");
+	SHELL_Write(output, "Limit: ");
+	SHELL_Write(output, LIMIT_SWITCH_IsActive(&switch_config) ? "active" : "released");
+	SHELL_Write(output, "\r\n");
 	return SHELL_RESULT_OK;
 }
 
-SHELL_Result SHELL_CommandCurtain(int argc, const char* argv[]) {
+SHELL_Result SHELL_CommandCurtain(const SHELL_Output* output, int argc, const char* argv[]) {
 	if (STRING_Equals(argv[0], "status")) {
 		if (argc != 1) return SHELL_RESULT_ARGUMENT_COUNT;
 
-		SHELL_Write("Curtain: state=");
-		SHELL_Write(SHELL_CurtainStateName(CURTAIN_Controller_State_Get()));
-		SHELL_Write(", ");
-		SHELL_Write(CURTAIN_Controller_IsBusy() ? "busy" : "idle");
-		SHELL_Write("\r\n");
+		SHELL_Write(output, "Curtain: state=");
+		SHELL_Write(output, SHELL_CurtainStateName(CURTAIN_Controller_State_Get()));
+		SHELL_Write(output, ", ");
+		SHELL_Write(output, CURTAIN_Controller_IsBusy() ? "busy" : "idle");
+		SHELL_Write(output, "\r\n");
 		return SHELL_RESULT_OK;
 	}
 
@@ -452,7 +437,7 @@ SHELL_Result SHELL_CommandCurtain(int argc, const char* argv[]) {
 	if (STRING_Equals(argv[0], "stop")) {
 		if (argc != 1) return SHELL_RESULT_ARGUMENT_COUNT;
 		CURTAIN_Controller_Stop(CURTAIN_Unknown);
-		SHELL_Write("Curtain: stopped\r\n");
+		SHELL_Write(output, "Curtain: stopped\r\n");
 		return SHELL_RESULT_OK;
 	}
 
@@ -478,22 +463,24 @@ SHELL_Result SHELL_CommandCurtain(int argc, const char* argv[]) {
 		CURTAIN_Result move_result = CURTAIN_Controller_Move(direction, steps);
 		if (move_result != CURTAIN_Result_Ok) return SHELL_CurtainResult_ToShell(move_result);
 
-		SHELL_Write("Curtain: moving ");
-		SHELL_Write(direction == STEPPER_Direction_Reverse ? "up " : "down ");
-		SHELL_WriteUnsigned(steps);
-		SHELL_Write(" steps\r\n");
+		SHELL_Write(output, "Curtain: moving ");
+		SHELL_Write(output, direction == STEPPER_Direction_Reverse ? "up " : "down ");
+		SHELL_WriteUnsigned(output, steps);
+		SHELL_Write(output, " steps\r\n");
 		return SHELL_RESULT_OK;
 	}
 
 	return SHELL_RESULT_BAD_ARGUMENT;
 }
 
-static SHELL_Result SHELL_CommandESP(int argc, const char* argv[]) {
+static SHELL_Result SHELL_CommandESP(const SHELL_Output* output, int argc, const char* argv[]) {
+	(void)output;
 	if (argc != 1) return SHELL_RESULT_ARGUMENT_COUNT;
 	return SHELL_ESPResult_ToShell(ESP_TestCommand_Execute(argv[0]));
 }
 
-static SHELL_Result SHELL_CommandTCP(int argc, const char* argv[]) {
+static SHELL_Result SHELL_CommandTCP(const SHELL_Output* output, int argc, const char* argv[]) {
+	(void)output;
 	(void)argc;
 	if (!STRING_Equals(argv[0], "status")) return SHELL_RESULT_BAD_ARGUMENT;
 	return SHELL_ESPResult_ToShell(ESP_TCPStatus_Query());
@@ -522,26 +509,26 @@ static const char* SHELL_ESPWifiStateName(ESP_WifiState state) {
 	return "invalid";
 }
 
-static void SHELL_WifiSSID_Write(void) {
+static void SHELL_WifiSSID_Write(const SHELL_Output* output) {
 	const char* ssid = ESP_SSID_Get();
-	SHELL_Write("SSID: ");
+	SHELL_Write(output, "SSID: ");
 	if (ssid != 0) {
-		SHELL_Write("\"");
-		SHELL_Write(ssid);
-		SHELL_Write("\"");
+		SHELL_Write(output, "\"");
+		SHELL_Write(output, ssid);
+		SHELL_Write(output, "\"");
 	}
 	else if (ESP_WifiState_Get() == ESP_WifiState_Disconnected) {
-		SHELL_Write("none (disconnected)");
+		SHELL_Write(output, "none (disconnected)");
 	}
 	else {
-		SHELL_Write("unknown (not queried)");
+		SHELL_Write(output, "unknown (not queried)");
 	}
-	SHELL_Write("\r\n");
+	SHELL_Write(output, "\r\n");
 }
 
-static void SHELL_WifiIP_Write(void) {
+static void SHELL_WifiIP_Write(const SHELL_Output* output) {
 	const uint8_t* ip = ESP_IP_Get();
-	SHELL_Write("Station IP: ");
+	SHELL_Write(output, "Station IP: ");
 	if (ip != 0) {
 		char buffer[16];
 		(void)STRING_snprintf(
@@ -553,56 +540,56 @@ static void SHELL_WifiIP_Write(void) {
 			(unsigned int)ip[2],
 			(unsigned int)ip[3]
 		);
-		SHELL_Write(buffer);
+		SHELL_Write(output, buffer);
 	}
 	else if (ESP_WifiState_Get() == ESP_WifiState_Disconnected) {
-		SHELL_Write("none (disconnected)");
+		SHELL_Write(output, "none (disconnected)");
 	}
 	else if (ESP_WifiState_Get() == ESP_WifiState_GotIP) {
-		SHELL_Write("acquired; address not queried");
+		SHELL_Write(output, "acquired; address not queried");
 	}
 	else {
-		SHELL_Write("unknown");
+		SHELL_Write(output, "unknown");
 	}
-	SHELL_Write("\r\n");
+	SHELL_Write(output, "\r\n");
 }
 
-static SHELL_Result SHELL_CommandWifi(int argc, const char* argv[]) {
+static SHELL_Result SHELL_CommandWifi(const SHELL_Output* output, int argc, const char* argv[]) {
 	(void)argc;
 
 	if (STRING_Equals(argv[0], "status")) {
-		SHELL_Write("WiFi status (cached):\r\n");
-		SHELL_Write("Mode: ");
-		SHELL_Write(SHELL_ESPModeName(ESP_Mode_Get()));
-		SHELL_Write("\r\nState: ");
-		SHELL_Write(SHELL_ESPWifiStateName(ESP_WifiState_Get()));
-		SHELL_Write("\r\n");
-		SHELL_WifiSSID_Write();
-		SHELL_WifiIP_Write();
+		SHELL_Write(output, "WiFi status (cached):\r\n");
+		SHELL_Write(output, "Mode: ");
+		SHELL_Write(output, SHELL_ESPModeName(ESP_Mode_Get()));
+		SHELL_Write(output, "\r\nState: ");
+		SHELL_Write(output, SHELL_ESPWifiStateName(ESP_WifiState_Get()));
+		SHELL_Write(output, "\r\n");
+		SHELL_WifiSSID_Write(output);
+		SHELL_WifiIP_Write(output);
 		return SHELL_RESULT_OK;
 	}
 
 	if (STRING_Equals(argv[0], "mode")) {
-		SHELL_Write("WiFi mode: ");
-		SHELL_Write(SHELL_ESPModeName(ESP_Mode_Get()));
-		SHELL_Write("\r\n");
+		SHELL_Write(output, "WiFi mode: ");
+		SHELL_Write(output, SHELL_ESPModeName(ESP_Mode_Get()));
+		SHELL_Write(output, "\r\n");
 		return SHELL_RESULT_OK;
 	}
 
 	if (STRING_Equals(argv[0], "connected") || STRING_Equals(argv[0], "state")) {
-		SHELL_Write("WiFi state: ");
-		SHELL_Write(SHELL_ESPWifiStateName(ESP_WifiState_Get()));
-		SHELL_Write("\r\n");
+		SHELL_Write(output, "WiFi state: ");
+		SHELL_Write(output, SHELL_ESPWifiStateName(ESP_WifiState_Get()));
+		SHELL_Write(output, "\r\n");
 		return SHELL_RESULT_OK;
 	}
 
 	if (STRING_Equals(argv[0], "ssid")) {
-		SHELL_WifiSSID_Write();
+		SHELL_WifiSSID_Write(output);
 		return SHELL_RESULT_OK;
 	}
 
 	if (STRING_Equals(argv[0], "ip")) {
-		SHELL_WifiIP_Write();
+		SHELL_WifiIP_Write(output);
 		return SHELL_RESULT_OK;
 	}
 
